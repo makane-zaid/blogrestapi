@@ -1,44 +1,57 @@
-from django.shortcuts import redirect
-#from lib2to3.pgen2.pgen import DFAState
-from django.shortcuts import render
-from .models import Post
-from django.utils import timezone
-from django.shortcuts import render, get_object_or_404
-from .forms import PostForm
+from rest_framework import status, mixins, generics, permissions, viewsets
+from blog.permissions import IsOwnerOrReadOnly
+from rest_framework.decorators import api_view, action
+from blog.models import Post
+from blog.permissions import IsOwnerOrReadOnly
+from blog.serializers import PostSerializer, UserSerializer
+from django.http import Http404
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.renderers import TemplateHTMLRenderer
+from rest_framework.generics import RetrieveAPIView
+from django.contrib.auth.models import User
+from django.db.models import Q
 
+    
+# class PostList(generics.ListCreateAPIView):
+#     queryset = Post.objects.all()
+#     serializer_class = PostSerializer
+#     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
-# Create your views here.
-def post_list(request):
-    posts = Post.objects.filter(published_date__lte=timezone.now()).order_by('published_date')
-    return render(request, 'blog/post_list.html', {'posts':posts})
+#     def perform_create(self, serializer):
+#         serializer.save(owner=self.request.user)
+        
+    
+# class PostDetail(generics.RetrieveUpdateDestroyAPIView):
+#     queryset= Post.objects.all()
+#     serializer_class = PostSerializer
+#     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+    
+    
+class PostViewSet(viewsets.ModelViewSet):
+    queryset = Post.objects.all()
+    serializer_class = PostSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+    
+    
+    def get_queryset(self, *args, **kwargs):
+        if self.request.user.is_anonymous:
+            return Post.objects.all().exclude(private=True)
+        elif self.request.user.is_superuser:
+            return super().get_queryset(*args, **kwargs)
+        return super().get_queryset(*args, **kwargs).exclude(~Q(author=self.request.user), private=True)
+        
+    
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
 
-def post_detail(request, pk):
-    post = get_object_or_404(Post, pk=pk)
-    return render(request, 'blog/post_detail.html', {'post': post})
+# class UserViewSet(viewsets.ReadOnlyModelViewSet):
+#     queryset = User.objects.all()
+#     serializer_class = UserSerializer
 
-def post_new(request):
-    if request.method == "POST":
-        form = PostForm(request.POST)
-        if form.is_valid():
-            post = form.save(commit=False)
-            post.author = request.user
-            post.published_date = timezone.now()
-            post.save()
-            return redirect('post_detail', pk=post.pk)
-    else:
-        form = PostForm()
-    return render(request, 'blog/post_edit.html', {'form':form})
-
-def post_edit(request, pk):
-    post = get_object_or_404(Post, pk=pk)
-    if request.method == "POST":
-        form = PostForm(request.POST, instance=post)
-        if form.is_valid():
-            post = form.save(commit=False)
-            post.author = request.user
-            post.published_date = timezone.now()
-            post.save()
-            return redirect('post_detail', pk=post.pk)
-    else:
-        form = PostForm(instance=post)
-    return render(request, 'blog/post_edit.html', {'form': form})
+class UserAPIView(RetrieveAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = UserSerializer
+    
+    def get_object(self):
+        return self.request.user
